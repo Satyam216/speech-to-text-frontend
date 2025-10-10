@@ -111,13 +111,15 @@ export default function Dashboard() {
   };
 
   // 📤 Upload
-  const uploadAudio = async (fileOrBlob) => {
+    const uploadAudio = async (fileOrBlob) => {
     if (!token) return setError("⚠️ Please login first to upload audio!");
     setError("");
     setLoading(true);
     try {
       const formData = new FormData();
       formData.append("audio", fileOrBlob, `audio-${Date.now()}.webm`);
+
+      // 1️⃣ Upload to Supabase (already working)
       const res = await fetch(`${API_URL}/api/audio/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
@@ -125,14 +127,30 @@ export default function Dashboard() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
+
       setAudioURL(data.audioUrl);
-      setTranscription(data.transcription_text || "Transcription pending...");
+
+      // 2️⃣ Deepgram transcription
+      const res2 = await fetch(`${API_URL}/api/transcription/transcribe`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ audioUrl: data.audioUrl }), // send Supabase URL
+      });
+      const result = await res2.json();
+      if (res2.ok) {
+        setTranscription(result.transcription_text);
+      } else {
+        setTranscription("Transcription failed.");
+      }
     } catch (err) {
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
+
 
   // 📁 Handle Upload
   const handleFile = (e) => {
