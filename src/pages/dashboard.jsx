@@ -1,64 +1,266 @@
-import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { Mic, Upload, LogOut, LogIn, UserPlus } from "lucide-react"; // 🎨 beautiful icons
+import { API_URL } from "../api/apiConfig";
 
-const Dashboard = () => {
+export default function Dashboard() {
   const navigate = useNavigate();
+  const [token, setToken] = useState(localStorage.getItem("token") || null);
   const [userEmail, setUserEmail] = useState("");
-  const [serverStatus, setServerStatus] = useState("");
+  const [recording, setRecording] = useState(false);
+  const [mediaRecorder, setMediaRecorder] = useState(null);
+  const [chunks, setChunks] = useState([]);
+  const [audioURL, setAudioURL] = useState(null);
+  const [transcription, setTranscription] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Check JWT token
+  const canvasRef = useRef(null);
+  const audioRef = useRef(null);
+  const audioCtxRef = useRef(null);
+  const analyserRef = useRef(null);
+  const rafRef = useRef(null);
+
   useEffect(() => {
-    const token = localStorage.getItem("token");
-    if (!token) {
-      navigate("/login");
-      return;
+    const t = localStorage.getItem("token");
+    if (t) {
+      setToken(t);
+      try {
+        const payload = JSON.parse(atob(t.split(".")[1]));
+        setUserEmail(payload.email);
+      } catch {
+        setUserEmail("User");
+      }
     }
+  }, []);
 
-    // (Optional) decode email from token payload (simple version)
+  // 🎵 Waveform Visualizer
+  const drawWave = () => {
+    const analyser = analyserRef.current;
+    const canvas = canvasRef.current;
+    if (!analyser || !canvas) return;
+    const ctx = canvas.getContext("2d");
+    const bufferLength = analyser.fftSize;
+    const dataArray = new Uint8Array(bufferLength);
+    const WIDTH = canvas.width;
+    const HEIGHT = canvas.height;
+
+    const draw = () => {
+      analyser.getByteTimeDomainData(dataArray);
+      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillRect(0, 0, WIDTH, HEIGHT);
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = "#ffffff";
+      ctx.beginPath();
+      const sliceWidth = WIDTH / bufferLength;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * HEIGHT) / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        x += sliceWidth;
+      }
+      ctx.lineTo(WIDTH, HEIGHT / 2);
+      ctx.stroke();
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    draw();
+  };
+
+  // 🎙 Start Recording
+  const startRecording = async () => {
+    if (!token) return setError("Please login first to record audio!");
     try {
-      const payload = JSON.parse(atob(token.split(".")[1]));
-      setUserEmail(payload.email);
-    } catch {
-      setUserEmail("User");
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      drawWave();
+
+      const mr = new MediaRecorder(stream);
+      setChunks([]);
+      mr.ondataavailable = (e) => e.data.size && setChunks((prev) => [...prev, e.data]);
+      mr.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const localURL = URL.createObjectURL(blob);
+        setAudioURL(localURL); // ✅ so user can listen immediately
+        audioRef.current && (audioRef.current.src = localURL); // optional direct bind
+        uploadAudio(blob);
+        stream.getTracks().forEach((t) => t.stop());
+        cancelAnimationFrame(rafRef.current);
+        if (audioCtxRef.current) audioCtxRef.current.close();
+      };
+      mr.start();
+      setMediaRecorder(mr);
+      setRecording(true);
+    } catch (err) {
+      setError("Microphone access denied!");
     }
+  };
 
-    // Test backend connection
-    fetch(import.meta.env.VITE_BACKEND_URL + "/")
-      .then((res) =>
-        res.ok ? setServerStatus("🟢 Connected to backend") : setServerStatus("🔴 Backend not reachable")
-      )
-      .catch(() => setServerStatus("🔴 Backend not reachable"));
-  }, [navigate]);
+  // ⏹ Stop Recording
+  const stopRecording = () => {
+    if (mediaRecorder) {
+      mediaRecorder.stop();
+      setRecording(false);
+    }
+  };
 
+  // 📤 Upload
+  const uploadAudio = async (fileOrBlob) => {
+    if (!token) return setError("⚠️ Please login first to upload audio!");
+    setError("");
+    setLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("audio", fileOrBlob, `audio-${Date.now()}.webm`);
+      const res = await fetch(`${API_URL}/api/audio/upload`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Upload failed");
+      setAudioURL(data.audioUrl);
+      setTranscription(data.transcription_text || "Transcription pending...");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 📁 Handle Upload
+  const handleFile = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    if (!file.type.startsWith("audio/")) return setError("❌ Only audio files allowed!");
+    uploadAudio(file);
+  };
+
+  // 🔐 Logout
   const handleLogout = () => {
     localStorage.removeItem("token");
-    navigate("/login");
+    setToken(null);
+    navigate("/dashboard");
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-indigo-500 to-purple-600 flex flex-col items-center justify-center p-6 text-white">
-      <div className="bg-white/10 backdrop-blur-md rounded-2xl shadow-2xl p-8 max-w-lg w-full text-center">
-        <h1 className="text-3xl font-bold mb-4">🎧 Welcome to Your Dashboard</h1>
-        <p className="text-lg mb-2">Hello, <span className="font-semibold">{userEmail || "User"}</span> 👋</p>
-        <p className="text-sm mb-6 text-gray-200">{serverStatus}</p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <button
-            onClick={() => alert("Upload feature coming soon 🚀")}
-            className="bg-indigo-600 hover:bg-indigo-700 transition-all text-white py-3 px-6 rounded-xl font-medium w-full sm:w-auto"
-          >
-            Upload Audio
-          </button>
-          <button
-            onClick={handleLogout}
-            className="bg-red-500 hover:bg-red-600 transition-all text-white py-3 px-6 rounded-xl font-medium w-full sm:w-auto"
-          >
-            Logout
-          </button>
+    <div className="min-h-screen bg-gradient-to-b from-black via-neutral-900 to-gray-950 text-white flex flex-col">
+      {/* Header */}
+      <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full">
+        <h1 className="text-2xl font-bold">
+          <span className="text-white">Speech</span>
+          <span className="text-gray-400">Flow</span>
+        </h1>
+        <div>
+          {token ? (
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-gray-300">{userEmail}</span>
+              <button
+                onClick={handleLogout}
+                className="flex items-center gap-1 bg-red-500 hover:bg-red-600 px-3 py-2 rounded-lg text-sm"
+              >
+                <LogOut size={16} /> Logout
+              </button>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Link
+                to="/login"
+                className="flex items-center gap-1 border border-white/30 px-3 py-2 rounded-md hover:bg-white hover:text-black transition"
+              >
+                <LogIn size={16} /> Login
+              </Link>
+              <Link
+                to="/signup"
+                className="flex items-center gap-1 bg-white text-black px-3 py-2 rounded-md hover:bg-gray-200 transition"
+              >
+                <UserPlus size={16} /> Create Account
+              </Link>
+            </div>
+          )}
         </div>
-      </div>
+      </header>
+
+      {/* Hero Section */}
+      <section className="text-center py-10 px-6 max-w-4xl mx-auto">
+        <h2 className="text-4xl sm:text-6xl font-extrabold mb-6 leading-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+          No typing. No limits. Just speak.
+        </h2>
+        <p className="text-gray-300 text-lg sm:text-xl mb-8">
+          A smart and efficient <span className="text-white font-semibold">Speech-to-Text Conversion Web App</span> that
+          turns your spoken words into accurate, editable text in real time. Designed for students, creators, and
+          professionals — our platform saves time, boosts productivity, and ensures your ideas are never lost.
+        </p>
+      </section>
+
+      {/* Main Recording Section */}
+      <main className="flex-1 flex flex-col items-center justify-start px-6">
+        <div className="w-full max-w-3xl bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
+          <h2 className="text-xl font-semibold mb-4 text-center">🎙 Record or Upload Audio</h2>
+
+          <canvas ref={canvasRef} width={1000} height={150} className="w-full rounded-md bg-black/40 mb-4" />
+
+          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
+            {!recording ? (
+              <button
+                onClick={startRecording}
+                className="flex items-center justify-center gap-2 bg-white text-black hover:bg-gray-200 px-6 py-3 rounded-lg font-semibold transition"
+              >
+                <Mic size={18} /> Start Recording
+              </button>
+            ) : (
+              <button
+                onClick={stopRecording}
+                className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 px-6 py-3 rounded-lg font-semibold transition"
+              >
+                ⏹ Stop Recording
+              </button>
+            )}
+            <label className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-lg font-semibold cursor-pointer transition">
+              <Upload size={18} /> Upload Audio
+              <input type="file" accept="audio/*" onChange={handleFile} className="hidden" />
+            </label>
+          </div>
+
+          {loading && <p className="text-center text-white/80 mb-2">⏳ Uploading...</p>}
+          {error && <p className="text-center text-red-400 mb-2">{error}</p>}
+
+          {audioURL && (
+            <div className="mt-4">
+              <audio ref={audioRef} src={audioURL} controls className="w-full" />
+              <h3 className="mt-3 text-lg font-medium">📝 Transcription:</h3>
+              <div className="bg-black/40 rounded-lg p-3 mt-1 min-h-[80px]">
+                {transcription || "No transcription yet."}
+              </div>
+            </div>
+          )}
+
+          {!token && (
+            <div className="mt-6 p-4 bg-red-500/60 rounded-md text-center">
+              <p className="text-white font-medium">
+                ⚠️ Login first to use recording or upload feature.
+              </p>
+            </div>
+          )}
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10">
+        <p className="max-w-3xl mx-auto text-gray-400 px-4">
+          Our Speech-to-Text Conversion Application is built to make communication effortless.
+          Whether you’re brainstorming ideas, taking quick notes, or drafting content hands-free, 
+          this platform accurately transcribes your voice into text with speed and precision.
+          Perfect for meetings, lectures, interviews, or content creation — just click, speak, and convert.
+        </p>
+        <p className="mt-3">© {new Date().getFullYear()} SpeechFlow — Let your voice take the lead.</p>
+      </footer>
     </div>
   );
-};
-
-export default Dashboard;
+}
