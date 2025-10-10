@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loginUser } from "../api/authAPI";
+import { loginUser } from "../api/authApi";
 import { LogIn } from "lucide-react"; // 👌 clean icon
 
 const Login = () => {
