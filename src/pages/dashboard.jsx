@@ -196,7 +196,7 @@ export default function Dashboard() {
       <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full">
         <h1 className="text-2xl font-bold tracking-wide">
           <span className="text-white">Speech</span>
-          <span className="text-cyan-400">Flow</span>
+          <span className="text-cyan-400">ToText</span>
         </h1>
         <div>
           {token ? (
@@ -296,7 +296,7 @@ export default function Dashboard() {
 
           {!token && (
             <div className="mt-6 p-4 bg-red-500/60 rounded-md text-center">
-              <p className="text-white font-medium">⚠️ Login first to use recording or upload feature.</p>
+              <p className="text-white font-medium">Login first to use recording or upload feature.</p>
             </div>
           )}
         </div>
