@@ -1,6 +1,18 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mic, Upload, LogOut, LogIn, UserPlus } from "lucide-react";
+import {
+  Mic,
+  Upload,
+  LogOut,
+  LogIn,
+  UserPlus,
+  Copy,
+  CheckCircle,
+  StopCircle,
+  FileText,
+  Github,
+  Linkedin,
+} from "lucide-react";
 import { API_URL } from "../api/apiConfig";
 
 export default function Dashboard() {
@@ -14,6 +26,7 @@ export default function Dashboard() {
   const [transcription, setTranscription] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const canvasRef = useRef(null);
   const audioRef = useRef(null);
@@ -51,7 +64,7 @@ export default function Dashboard() {
       ctx.fillStyle = "rgba(0,0,0,0.3)";
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = "#00FFCC";
       ctx.beginPath();
       const sliceWidth = WIDTH / bufferLength;
       let x = 0;
@@ -69,97 +82,84 @@ export default function Dashboard() {
     draw();
   };
 
-// 🎙 Start Recording
-const startRecording = async () => {
-  if (!token) return setError("Please login first to record audio!");
+  // 🎙 Start Recording
+  const startRecording = async () => {
+    if (!token) return setError("Please login first to record audio!");
 
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      setChunks([]);
+      setAudioURL(null);
+      setTranscription("");
+      setError("");
 
-    // reset old data
-    setChunks([]);
-    setAudioURL(null);
-    setTranscription("");
-    setError("");
+      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+      drawWave();
 
-    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-    const source = audioCtxRef.current.createMediaStreamSource(stream);
-    const analyser = audioCtxRef.current.createAnalyser();
-    analyser.fftSize = 2048;
-    source.connect(analyser);
-    analyserRef.current = analyser;
-    drawWave();
+      const mr = new MediaRecorder(stream);
+      let localChunks = [];
 
-    const mr = new MediaRecorder(stream);
-    let localChunks = [];
+      mr.ondataavailable = (e) => {
+        if (e.data.size > 0) localChunks.push(e.data);
+      };
 
-    mr.ondataavailable = (e) => {
-      if (e.data.size > 0) localChunks.push(e.data);
-    };
+      mr.onstop = async () => {
+        const blob = new Blob(localChunks, { type: "audio/webm; codecs=opus" });
+        const localURL = URL.createObjectURL(blob);
+        setAudioURL(localURL);
+        if (audioRef.current) {
+          audioRef.current.src = localURL;
+          audioRef.current.load();
+        }
 
-    mr.onstop = async () => {
-      // ✅ Ensure fresh blob (not mixing old)
-      const blob = new Blob(localChunks, { type: "audio/webm; codecs=opus" });
-      const localURL = URL.createObjectURL(blob);
-      setAudioURL(localURL);
-      if (audioRef.current) {
-        audioRef.current.src = localURL;
-        audioRef.current.load();
-      }
+        stream.getTracks().forEach((t) => t.stop());
+        cancelAnimationFrame(rafRef.current);
+        if (audioCtxRef.current) audioCtxRef.current.close();
 
-      // Stop everything
-      stream.getTracks().forEach((t) => t.stop());
-      cancelAnimationFrame(rafRef.current);
-      if (audioCtxRef.current) audioCtxRef.current.close();
+        await uploadAudio(blob);
+      };
 
-      await uploadAudio(blob);
-    };
+      mr.start();
+      setMediaRecorder(mr);
+      setRecording(true);
+    } catch (err) {
+      console.error(err);
+      setError("🎤 Microphone access denied or unavailable!");
+    }
+  };
 
-    mr.start();
-    setMediaRecorder(mr);
-    setRecording(true);
-  } catch (err) {
-    console.error(err);
-    setError("🎤 Microphone access denied or unavailable!");
-  }
-};
+  // ⏹ Stop Recording
+  const stopRecording = () => {
+    if (mediaRecorder && recording) {
+      mediaRecorder.stop();
+      setRecording(false);
+    }
+  };
 
-// ⏹ Stop Recording
-const stopRecording = () => {
-  if (mediaRecorder && recording) {
-    mediaRecorder.stop();
-    setRecording(false);
-  }
-};
-
-
-  // 📤 Upload + Deepgram transcription
+  // 📤 Upload
   const uploadAudio = async (fileOrBlob) => {
     const token = localStorage.getItem("token");
     if (!token) return setError("⚠️ Please login first to upload audio!");
     setError("");
     setLoading(true);
-
     try {
       const formData = new FormData();
       formData.append("audio", fileOrBlob, `audio-${Date.now()}.webm`);
 
-      // 1️⃣ Upload to Supabase
       const res = await fetch(`${API_URL}/api/audio/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-
-      const newAudioUrl = data.audioUrl;
-      setAudioURL(newAudioUrl);
-
-      // 2️⃣ Deepgram Transcription
+      setAudioURL(data.audioUrl);
       setTranscription(data.transcription_text);
-      
     } catch (err) {
       console.error(err);
       setError("Upload or transcription failed!");
@@ -168,12 +168,19 @@ const stopRecording = () => {
     }
   };
 
-  // 📁 Handle Upload manually
+  // 📁 File Upload
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (!file.type.startsWith("audio/")) return setError("❌ Only audio files allowed!");
     uploadAudio(file);
+  };
+
+  // 🧾 Copy Transcription
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(transcription);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   // 🔐 Logout
@@ -187,9 +194,9 @@ const stopRecording = () => {
     <div className="min-h-screen bg-gradient-to-b from-black via-neutral-900 to-gray-950 text-white flex flex-col">
       {/* Header */}
       <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full">
-        <h1 className="text-2xl font-bold">
+        <h1 className="text-2xl font-bold tracking-wide">
           <span className="text-white">Speech</span>
-          <span className="text-gray-400">ToText</span>
+          <span className="text-cyan-400">Flow</span>
         </h1>
         <div>
           {token ? (
@@ -236,7 +243,9 @@ const stopRecording = () => {
       {/* Main */}
       <main className="flex-1 flex flex-col items-center justify-start px-6">
         <div className="w-full max-w-3xl bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-xl font-semibold mb-4 text-center">🎙 Record or Upload Audio</h2>
+          <h2 className="text-xl font-semibold mb-4 text-center flex justify-center items-center gap-2">
+            <FileText className="text-cyan-400" /> Record or Upload Audio
+          </h2>
 
           <canvas ref={canvasRef} width={1000} height={150} className="w-full rounded-md bg-black/40 mb-4" />
 
@@ -246,18 +255,18 @@ const stopRecording = () => {
                 onClick={startRecording}
                 className="flex items-center justify-center gap-2 bg-white text-black hover:bg-gray-200 px-6 py-3 rounded-lg font-semibold transition"
               >
-                <Mic size={18} /> Start Recording
+                <Mic className="text-cyan-500" size={20} /> Start Recording
               </button>
             ) : (
               <button
                 onClick={stopRecording}
                 className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 px-6 py-3 rounded-lg font-semibold transition"
               >
-                ⏹ Stop Recording
+                <StopCircle size={22} /> Stop Recording
               </button>
             )}
             <label className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-lg font-semibold cursor-pointer transition">
-              <Upload size={18} /> Upload Audio
+              <Upload className="text-cyan-400" size={20} /> Upload Audio
               <input type="file" accept="audio/*" onChange={handleFile} className="hidden" />
             </label>
           </div>
@@ -268,7 +277,17 @@ const stopRecording = () => {
           {audioURL && (
             <div className="mt-4">
               <audio key={audioURL} ref={audioRef} src={audioURL} controls className="w-full" />
-              <h3 className="mt-3 text-lg font-medium">📝 Transcription:</h3>
+              <div className="flex justify-between items-center mt-3">
+                <h3 className="text-lg font-medium flex items-center gap-2">
+                  <FileText className="text-cyan-400" /> Transcription:
+                </h3>
+                <button
+                  onClick={copyToClipboard}
+                  className="flex items-center gap-1 bg-cyan-500 hover:bg-cyan-600 px-3 py-1 rounded text-sm text-black font-semibold"
+                >
+                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />} {copied ? "Copied" : "Copy"}
+                </button>
+              </div>
               <div className="bg-black/40 rounded-lg p-3 mt-1 min-h-[80px]">
                 {transcription || "Processing your speech..."}
               </div>
@@ -284,11 +303,19 @@ const stopRecording = () => {
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10">
+      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10 flex flex-col items-center">
         <p className="max-w-3xl mx-auto text-gray-400 px-4">
           Our Speech-to-Text Conversion Application makes communication effortless.
           Perfect for meetings, lectures, interviews, or content creation — just click, speak, and convert.
         </p>
+        <div className="flex gap-4 mt-4">
+          <a href="https://github.com/Satyam216" target="_blank" rel="noopener noreferrer">
+            <Github className="text-white hover:text-cyan-400 transition" size={22} />
+          </a>
+          <a href="https://linkedin.com/in/satyamjain216" target="_blank" rel="noopener noreferrer">
+            <Linkedin className="text-white hover:text-cyan-400 transition" size={22} />
+          </a>
+        </div>
         <p className="mt-3">© {new Date().getFullYear()} SpeechFlow — Let your voice take the lead.</p>
       </footer>
     </div>
