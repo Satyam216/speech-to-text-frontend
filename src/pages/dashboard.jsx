@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Mic, Upload, LogOut, LogIn, UserPlus } from "lucide-react"; // 🎨 beautiful icons
+import { Mic, Upload, LogOut, LogIn, UserPlus } from "lucide-react";
 import { API_URL } from "../api/apiConfig";
 
 export default function Dashboard() {
@@ -21,6 +21,7 @@ export default function Dashboard() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
 
+  // ✅ Decode JWT and load user email
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (t) {
@@ -68,91 +69,106 @@ export default function Dashboard() {
     draw();
   };
 
-  // 🎙 Start Recording
-  const startRecording = async () => {
-    if (!token) return setError("Please login first to record audio!");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtxRef.current.createMediaStreamSource(stream);
-      const analyser = audioCtxRef.current.createAnalyser();
-      analyser.fftSize = 2048;
-      source.connect(analyser);
-      analyserRef.current = analyser;
-      drawWave();
+// 🎙 Start Recording
+const startRecording = async () => {
+  if (!token) return setError("Please login first to record audio!");
 
-      const mr = new MediaRecorder(stream);
-      setChunks([]);
-      mr.ondataavailable = (e) => e.data.size && setChunks((prev) => [...prev, e.data]);
-      mr.onstop = () => {
-        const blob = new Blob(chunks, { type: "audio/webm" });
-        const localURL = URL.createObjectURL(blob);
-        setAudioURL(localURL); // ✅ so user can listen immediately
-        audioRef.current && (audioRef.current.src = localURL); // optional direct bind
-        uploadAudio(blob);
-        stream.getTracks().forEach((t) => t.stop());
-        cancelAnimationFrame(rafRef.current);
-        if (audioCtxRef.current) audioCtxRef.current.close();
-      };
-      mr.start();
-      setMediaRecorder(mr);
-      setRecording(true);
-    } catch (err) {
-      setError("Microphone access denied!");
-    }
-  };
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-  // ⏹ Stop Recording
-  const stopRecording = () => {
-    if (mediaRecorder) {
-      mediaRecorder.stop();
-      setRecording(false);
-    }
-  };
+    // reset old data
+    setChunks([]);
+    setAudioURL(null);
+    setTranscription("");
+    setError("");
 
-  // 📤 Upload
-    const uploadAudio = async (fileOrBlob) => {
+    audioCtxRef.current = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtxRef.current.createMediaStreamSource(stream);
+    const analyser = audioCtxRef.current.createAnalyser();
+    analyser.fftSize = 2048;
+    source.connect(analyser);
+    analyserRef.current = analyser;
+    drawWave();
+
+    const mr = new MediaRecorder(stream);
+    let localChunks = [];
+
+    mr.ondataavailable = (e) => {
+      if (e.data.size > 0) localChunks.push(e.data);
+    };
+
+    mr.onstop = async () => {
+      // ✅ Ensure fresh blob (not mixing old)
+      const blob = new Blob(localChunks, { type: "audio/webm; codecs=opus" });
+      const localURL = URL.createObjectURL(blob);
+      setAudioURL(localURL);
+      if (audioRef.current) {
+        audioRef.current.src = localURL;
+        audioRef.current.load();
+      }
+
+      // Stop everything
+      stream.getTracks().forEach((t) => t.stop());
+      cancelAnimationFrame(rafRef.current);
+      if (audioCtxRef.current) audioCtxRef.current.close();
+
+      await uploadAudio(blob);
+    };
+
+    mr.start();
+    setMediaRecorder(mr);
+    setRecording(true);
+  } catch (err) {
+    console.error(err);
+    setError("🎤 Microphone access denied or unavailable!");
+  }
+};
+
+// ⏹ Stop Recording
+const stopRecording = () => {
+  if (mediaRecorder && recording) {
+    mediaRecorder.stop();
+    setRecording(false);
+  }
+};
+
+
+  // 📤 Upload + Deepgram transcription
+  const uploadAudio = async (fileOrBlob) => {
+    const token = localStorage.getItem("token");
     if (!token) return setError("⚠️ Please login first to upload audio!");
     setError("");
     setLoading(true);
+
     try {
       const formData = new FormData();
       formData.append("audio", fileOrBlob, `audio-${Date.now()}.webm`);
 
-      // 1️⃣ Upload to Supabase (already working)
+      // 1️⃣ Upload to Supabase
       const res = await fetch(`${API_URL}/api/audio/upload`, {
         method: "POST",
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
 
-      setAudioURL(data.audioUrl);
+      const newAudioUrl = data.audioUrl;
+      setAudioURL(newAudioUrl);
 
-      // 2️⃣ Deepgram transcription
-      const res2 = await fetch(`${API_URL}/api/transcription/transcribe`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ audioUrl: data.audioUrl }), // send Supabase URL
-      });
-      const result = await res2.json();
-      if (res2.ok) {
-        setTranscription(result.transcription_text);
-      } else {
-        setTranscription("Transcription failed.");
-      }
+      // 2️⃣ Deepgram Transcription
+      setTranscription(data.transcription_text);
+      
     } catch (err) {
-      setError(err.message);
+      console.error(err);
+      setError("Upload or transcription failed!");
     } finally {
       setLoading(false);
     }
   };
 
-
-  // 📁 Handle Upload
+  // 📁 Handle Upload manually
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -173,7 +189,7 @@ export default function Dashboard() {
       <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full">
         <h1 className="text-2xl font-bold">
           <span className="text-white">Speech</span>
-          <span className="text-gray-400">Flow</span>
+          <span className="text-gray-400">ToText</span>
         </h1>
         <div>
           {token ? (
@@ -211,13 +227,13 @@ export default function Dashboard() {
           No typing. No limits. Just speak.
         </h2>
         <p className="text-gray-300 text-lg sm:text-xl mb-8">
-          A smart and efficient <span className="text-white font-semibold">Speech-to-Text Conversion Web App</span> that
-          turns your spoken words into accurate, editable text in real time. Designed for students, creators, and
-          professionals — our platform saves time, boosts productivity, and ensures your ideas are never lost.
+          A smart and efficient{" "}
+          <span className="text-white font-semibold">Speech-to-Text Conversion Web App</span>{" "}
+          that turns your spoken words into accurate, editable text in real time.
         </p>
       </section>
 
-      {/* Main Recording Section */}
+      {/* Main */}
       <main className="flex-1 flex flex-col items-center justify-start px-6">
         <div className="w-full max-w-3xl bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
           <h2 className="text-xl font-semibold mb-4 text-center">🎙 Record or Upload Audio</h2>
@@ -246,24 +262,22 @@ export default function Dashboard() {
             </label>
           </div>
 
-          {loading && <p className="text-center text-white/80 mb-2">⏳ Uploading...</p>}
+          {loading && <p className="text-center text-white/80 mb-2">⏳ Processing...</p>}
           {error && <p className="text-center text-red-400 mb-2">{error}</p>}
 
           {audioURL && (
             <div className="mt-4">
-              <audio ref={audioRef} src={audioURL} controls className="w-full" />
+              <audio key={audioURL} ref={audioRef} src={audioURL} controls className="w-full" />
               <h3 className="mt-3 text-lg font-medium">📝 Transcription:</h3>
               <div className="bg-black/40 rounded-lg p-3 mt-1 min-h-[80px]">
-                {transcription || "No transcription yet."}
+                {transcription || "Processing your speech..."}
               </div>
             </div>
           )}
 
           {!token && (
             <div className="mt-6 p-4 bg-red-500/60 rounded-md text-center">
-              <p className="text-white font-medium">
-                ⚠️ Login first to use recording or upload feature.
-              </p>
+              <p className="text-white font-medium">⚠️ Login first to use recording or upload feature.</p>
             </div>
           )}
         </div>
@@ -272,9 +286,7 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10">
         <p className="max-w-3xl mx-auto text-gray-400 px-4">
-          Our Speech-to-Text Conversion Application is built to make communication effortless.
-          Whether you’re brainstorming ideas, taking quick notes, or drafting content hands-free, 
-          this platform accurately transcribes your voice into text with speed and precision.
+          Our Speech-to-Text Conversion Application makes communication effortless.
           Perfect for meetings, lectures, interviews, or content creation — just click, speak, and convert.
         </p>
         <p className="mt-3">© {new Date().getFullYear()} SpeechFlow — Let your voice take the lead.</p>
