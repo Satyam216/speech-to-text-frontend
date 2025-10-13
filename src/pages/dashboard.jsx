@@ -34,7 +34,7 @@ export default function Dashboard() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
 
-  // ✅ Decode JWT and load user email
+  //Decode JWT and load user email
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (t) {
@@ -48,7 +48,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  // 🎵 Waveform Visualizer
+  //Waveform Visualizer
   const drawWave = () => {
     const analyser = analyserRef.current;
     const canvas = canvasRef.current;
@@ -82,7 +82,7 @@ export default function Dashboard() {
     draw();
   };
 
-  // 🎙 Start Recording
+  //Start Recording
   const startRecording = async () => {
     if (!token) return setError("Please login first to record audio!");
 
@@ -133,7 +133,7 @@ export default function Dashboard() {
     }
   };
 
-  // ⏹ Stop Recording
+  //Stop Recording
   const stopRecording = () => {
     if (mediaRecorder && recording) {
       mediaRecorder.stop();
@@ -141,7 +141,7 @@ export default function Dashboard() {
     }
   };
 
-  // 📤 Upload
+  //Upload
   const uploadAudio = async (fileOrBlob) => {
     const token = localStorage.getItem("token");
     if (!token) return setError("⚠️ Please login first to upload audio!");
@@ -168,7 +168,7 @@ export default function Dashboard() {
     }
   };
 
-  // 📁 File Upload
+  //File Upload
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -176,14 +176,14 @@ export default function Dashboard() {
     uploadAudio(file);
   };
 
-  // 🧾 Copy Transcription
+  //Copy Transcription
   const copyToClipboard = () => {
     navigator.clipboard.writeText(transcription);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  // 🔐 Logout
+  //Logout
   const handleLogout = () => {
     localStorage.removeItem("token");
     setToken(null);
