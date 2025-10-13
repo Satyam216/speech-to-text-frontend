@@ -316,7 +316,7 @@ export default function Dashboard() {
             <Linkedin className="text-white hover:text-cyan-400 transition" size={22} />
           </a>
         </div>
-        <p className="mt-3">© {new Date().getFullYear()} SpeechFlow — Let your voice take the lead.</p>
+        <p className="mt-3">© {new Date().getFullYear()} SpeechToText — Let your voice take the lead.</p>
       </footer>
     </div>
   );
