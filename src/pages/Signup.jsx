@@ -20,13 +20,16 @@ const Signup = () => {
   };
 
   return (
-    <div
-      className="relative flex justify-center items-center min-h-screen bg-cover bg-center bg-no-repeat"
-      style={{
-        backgroundImage:
-          "url('/images/background.jpg')",
-      }}
-    >
+    <div className="relative flex justify-center items-center min-h-screen bg-cover bg-center bg-no-repeat">
+      <video
+        className="absolute inset-0 w-full h-full object-cover -z-10"
+        src="video/loginBackground.mp4"        /* <-- put your file at public/loginBackground.mp4 */
+        autoPlay
+        muted
+        loop
+        playsInline
+      />
+      
       {/* overlay for gradient dark tint */}
       <div className="absolute inset-0 bg-gradient-to-br from-black/60 via-black/40 to-gray-800/70"></div>
 

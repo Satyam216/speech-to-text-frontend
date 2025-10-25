@@ -34,7 +34,6 @@ export default function Dashboard() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
 
-  //Decode JWT and load user email
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (t) {
@@ -48,7 +47,6 @@ export default function Dashboard() {
     }
   }, []);
 
-  //Waveform Visualizer
   const drawWave = () => {
     const analyser = analyserRef.current;
     const canvas = canvasRef.current;
@@ -61,10 +59,10 @@ export default function Dashboard() {
 
     const draw = () => {
       analyser.getByteTimeDomainData(dataArray);
-      ctx.fillStyle = "rgba(0,0,0,0.3)";
+      ctx.fillStyle = "rgba(0,0,0,0.2)";
       ctx.fillRect(0, 0, WIDTH, HEIGHT);
       ctx.lineWidth = 2;
-      ctx.strokeStyle = "#00FFCC";
+      ctx.strokeStyle = "#00e0ff";
       ctx.beginPath();
       const sliceWidth = WIDTH / bufferLength;
       let x = 0;
@@ -82,7 +80,6 @@ export default function Dashboard() {
     draw();
   };
 
-  //Start Recording
   const startRecording = async () => {
     if (!token) return setError("Please login first to record audio!");
 
@@ -133,7 +130,6 @@ export default function Dashboard() {
     }
   };
 
-  //Stop Recording
   const stopRecording = () => {
     if (mediaRecorder && recording) {
       mediaRecorder.stop();
@@ -141,7 +137,6 @@ export default function Dashboard() {
     }
   };
 
-  //Upload
   const uploadAudio = async (fileOrBlob) => {
     const token = localStorage.getItem("token");
     if (!token) return setError("⚠️ Please login first to upload audio!");
@@ -156,6 +151,7 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
+
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       setAudioURL(data.audioUrl);
@@ -168,7 +164,6 @@ export default function Dashboard() {
     }
   };
 
-  //File Upload
   const handleFile = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -176,14 +171,12 @@ export default function Dashboard() {
     uploadAudio(file);
   };
 
-  //Copy Transcription
   const copyToClipboard = () => {
     navigator.clipboard.writeText(transcription);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
-  //Logout
   const handleLogout = () => {
     localStorage.removeItem("token");
     setToken(null);
@@ -191,9 +184,12 @@ export default function Dashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-black via-neutral-900 to-gray-950 text-white flex flex-col">
+    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white relative overflow-hidden">
+      {/* Animated Background */}
+      <div className="absolute inset-0 animate-gradient bg-[radial-gradient(circle_at_30%_20%,rgba(0,255,255,0.15),transparent_40%),radial-gradient(circle_at_70%_80%,rgba(0,120,255,0.15),transparent_40%)]"></div>
+
       {/* Header */}
-      <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full">
+      <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full relative z-10">
         <h1 className="text-2xl font-bold tracking-wide">
           <span className="text-white">Speech</span>
           <span className="text-cyan-400">ToText</span>
@@ -229,33 +225,40 @@ export default function Dashboard() {
       </header>
 
       {/* Hero Section */}
-      <section className="text-center py-10 px-6 max-w-4xl mx-auto">
-        <h2 className="text-4xl sm:text-6xl font-extrabold mb-6 leading-tight bg-gradient-to-r from-white to-gray-400 bg-clip-text text-transparent">
+      <section className="text-center py-10 px-6 max-w-4xl mx-auto z-10">
+        <h2 className="text-4xl sm:text-6xl font-extrabold mb-6 leading-tight bg-gradient-to-r from-cyan-300 via-white to-blue-400 bg-clip-text text-transparent drop-shadow-[0_0_15px_rgba(0,255,255,0.3)]">
           No typing. No limits. Just speak.
         </h2>
         <p className="text-gray-300 text-lg sm:text-xl mb-8">
-          A smart and efficient{" "}
-          <span className="text-white font-semibold">Speech-to-Text Conversion Web App</span>{" "}
-          that turns your spoken words into accurate, editable text in real time.
+          A modern{" "}
+          <span className="text-white font-semibold">Speech-to-Text Conversion App</span>{" "}
+          that turns your spoken words into text in real time.
         </p>
       </section>
 
       {/* Main */}
-      <main className="flex-1 flex flex-col items-center justify-start px-6">
-        <div className="w-full max-w-3xl bg-white/10 backdrop-blur-lg rounded-2xl p-6 shadow-2xl">
-          <h2 className="text-xl font-semibold mb-4 text-center flex justify-center items-center gap-2">
+      <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-6 relative z-10">
+        <div className="w-full max-w-5xl bg-white/5 backdrop-blur-md rounded-3xl p-6 shadow-2xl border border-white/10">
+          <h2 className="text-xl font-semibold mb-6 text-center flex justify-center items-center gap-2">
             <FileText className="text-cyan-400" /> Record or Upload Audio
           </h2>
 
-          <canvas ref={canvasRef} width={1000} height={150} className="w-full rounded-md bg-black/40 mb-4" />
+          {/* Waveform */}
+          <canvas
+            ref={canvasRef}
+            width={1000}
+            height={200}
+            className="w-full h-40 rounded-md bg-black/30 mb-6 shadow-inner"
+          />
 
+          {/* Controls */}
           <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
             {!recording ? (
               <button
                 onClick={startRecording}
-                className="flex items-center justify-center gap-2 bg-white text-black hover:bg-gray-200 px-6 py-3 rounded-lg font-semibold transition"
+                className="flex items-center justify-center gap-2 bg-cyan-500 text-black hover:bg-cyan-400 px-6 py-3 rounded-lg font-semibold transition"
               >
-                <Mic className="text-cyan-500" size={20} /> Start Recording
+                <Mic size={20} /> Start Recording
               </button>
             ) : (
               <button
@@ -266,7 +269,7 @@ export default function Dashboard() {
               </button>
             )}
             <label className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-lg font-semibold cursor-pointer transition">
-              <Upload className="text-cyan-400" size={20} /> Upload Audio
+              <Upload size={20} /> Upload Audio
               <input type="file" accept="audio/*" onChange={handleFile} className="hidden" />
             </label>
           </div>
@@ -274,21 +277,23 @@ export default function Dashboard() {
           {loading && <p className="text-center text-white/80 mb-2">⏳ Processing...</p>}
           {error && <p className="text-center text-red-400 mb-2">{error}</p>}
 
+          {/* Transcription */}
           {audioURL && (
-            <div className="mt-4">
-              <audio key={audioURL} ref={audioRef} src={audioURL} controls className="w-full" />
-              <div className="flex justify-between items-center mt-3">
+            <div className="mt-4 w-full text-center">
+              <audio ref={audioRef} src={audioURL} controls className="w-full sm:w-3/4 mx-auto mb-4" />
+              <div className="flex justify-center items-center gap-3 mb-3">
                 <h3 className="text-lg font-medium flex items-center gap-2">
-                  <FileText className="text-cyan-400" /> Transcription:
+                  <FileText className="text-cyan-400" /> Transcription
                 </h3>
                 <button
                   onClick={copyToClipboard}
                   className="flex items-center gap-1 bg-cyan-500 hover:bg-cyan-600 px-3 py-1 rounded text-sm text-black font-semibold"
                 >
-                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />} {copied ? "Copied" : "Copy"}
+                  {copied ? <CheckCircle size={16} /> : <Copy size={16} />}{" "}
+                  {copied ? "Copied" : "Copy"}
                 </button>
               </div>
-              <div className="bg-black/40 rounded-lg p-3 mt-1 min-h-[80px]">
+              <div className="bg-black/40 rounded-lg p-3 min-h-[100px] mx-auto max-w-4xl text-gray-100 border border-white/10">
                 {transcription || "Processing your speech..."}
               </div>
             </div>
@@ -303,12 +308,11 @@ export default function Dashboard() {
       </main>
 
       {/* Footer */}
-      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10 flex flex-col items-center">
+      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10 relative z-10">
         <p className="max-w-3xl mx-auto text-gray-400 px-4">
-          Our Speech-to-Text Conversion Application makes communication effortless.
-          Perfect for meetings, lectures, interviews, or content creation — just click, speak, and convert.
+          Our Speech-to-Text App makes communication effortless — perfect for meetings, lectures, or content creation.
         </p>
-        <div className="flex gap-4 mt-4">
+        <div className="flex gap-4 mt-4 justify-center">
           <a href="https://github.com/Satyam216" target="_blank" rel="noopener noreferrer">
             <Github className="text-white hover:text-cyan-400 transition" size={22} />
           </a>
@@ -318,6 +322,18 @@ export default function Dashboard() {
         </div>
         <p className="mt-3">© {new Date().getFullYear()} SpeechToText — Let your voice take the lead.</p>
       </footer>
+
+      <style>{`
+        @keyframes gradient {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .animate-gradient {
+          background-size: 200% 200%;
+          animation: gradient 10s ease infinite;
+        }
+      `}</style>
     </div>
   );
 }
