@@ -281,13 +281,12 @@ export default function Dashboard() {
           transform: "scale(1.01)",
         }}
       />
-
-      {/* animated gradient overlay for nice contrast (keeps image visible) */}
+      
       <div
         className="fixed inset-0 -z-20 pointer-events-none"
         style={{
           background:
-            "linear-gradient(120deg, rgba(3,169,244,0.06), rgba(124,58,237,0.06), rgba(0,230,255,0.03))",
+            "linear-gradient(120deg, rgba(3, 8, 11, 0.7), rgba(124, 58, 237, 0), rgba(0,230,255,0.03))",
           backgroundSize: "300% 300%",
           animation: "moveGradient 18s ease-in-out infinite",
           mixBlendMode: "overlay",
