@@ -10,6 +10,7 @@ import {
   CheckCircle,
   StopCircle,
   FileText,
+  Download,
   Github,
   Linkedin,
 } from "lucide-react";
@@ -34,6 +35,7 @@ export default function Dashboard() {
   const analyserRef = useRef(null);
   const rafRef = useRef(null);
 
+  // keep your token/email logic as-is
   useEffect(() => {
     const t = localStorage.getItem("token");
     if (t) {
@@ -47,39 +49,83 @@ export default function Dashboard() {
     }
   }, []);
 
+  // drawWave - unchanged logic, adapted to responsive canvas sizing
   const drawWave = () => {
     const analyser = analyserRef.current;
     const canvas = canvasRef.current;
     if (!analyser || !canvas) return;
     const ctx = canvas.getContext("2d");
+
+    // make canvas pixel-dense and sized to container
+    const rect = canvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.max(300, Math.floor(rect.width * dpr));
+    canvas.height = Math.max(120, Math.floor(rect.height * dpr));
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    const W = rect.width;
+    const H = rect.height;
+
+    analyser.fftSize = analyser.fftSize || 2048;
     const bufferLength = analyser.fftSize;
     const dataArray = new Uint8Array(bufferLength);
-    const WIDTH = canvas.width;
-    const HEIGHT = canvas.height;
 
     const draw = () => {
       analyser.getByteTimeDomainData(dataArray);
-      ctx.fillStyle = "rgba(0,0,0,0.2)";
-      ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#00e0ff";
+
+      // Clear (soft)
+      ctx.clearRect(0, 0, W, H);
+
+      // subtle background overlay (makes waveform stand out)
+      ctx.fillStyle = "rgba(0,0,0,0.18)";
+      ctx.fillRect(0, 0, W, H);
+
+      // gradient stroke (contrast on your background)
+      const grad = ctx.createLinearGradient(0, 0, W, 0);
+      grad.addColorStop(0, "rgba(0,200,255,0.98)");
+      grad.addColorStop(0.5, "rgba(124,58,237,0.95)");
+      grad.addColorStop(1, "rgba(24,120,255,0.92)");
+
+      // main waveform
+      ctx.lineWidth = 2.8;
+      ctx.strokeStyle = grad;
       ctx.beginPath();
-      const sliceWidth = WIDTH / bufferLength;
+
+      const sliceWidth = W / bufferLength;
       let x = 0;
       for (let i = 0; i < bufferLength; i++) {
         const v = dataArray[i] / 128.0;
-        const y = (v * HEIGHT) / 2;
+        const y = (v * H) / 2;
         if (i === 0) ctx.moveTo(x, y);
         else ctx.lineTo(x, y);
         x += sliceWidth;
       }
-      ctx.lineTo(WIDTH, HEIGHT / 2);
+      ctx.lineTo(W, H / 2);
       ctx.stroke();
+
+      // glow overlay for soft bloom
+      ctx.lineWidth = 12;
+      ctx.strokeStyle = "rgba(0,230,255,0.06)";
+      ctx.beginPath();
+      x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = (v * H) / 2;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        x += sliceWidth;
+      }
+      ctx.lineTo(W, H / 2);
+      ctx.stroke();
+
       rafRef.current = requestAnimationFrame(draw);
     };
+
+    cancelAnimationFrame(rafRef.current);
     draw();
   };
 
+  // Recording logic unchanged
   const startRecording = async () => {
     if (!token) return setError("Please login first to record audio!");
 
@@ -109,8 +155,10 @@ export default function Dashboard() {
         const blob = new Blob(localChunks, { type: "audio/webm; codecs=opus" });
         const localURL = URL.createObjectURL(blob);
         setAudioURL(localURL);
+        // force reload audio element
         if (audioRef.current) {
           audioRef.current.src = localURL;
+          audioRef.current.key = localURL;
           audioRef.current.load();
         }
 
@@ -118,6 +166,7 @@ export default function Dashboard() {
         cancelAnimationFrame(rafRef.current);
         if (audioCtxRef.current) audioCtxRef.current.close();
 
+        // upload/blobs logic kept same
         await uploadAudio(blob);
       };
 
@@ -137,6 +186,7 @@ export default function Dashboard() {
     }
   };
 
+  // Upload logic unchanged
   const uploadAudio = async (fileOrBlob) => {
     const token = localStorage.getItem("token");
     if (!token) return setError("⚠️ Please login first to upload audio!");
@@ -151,7 +201,6 @@ export default function Dashboard() {
         headers: { Authorization: `Bearer ${token}` },
         body: formData,
       });
-
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
       setAudioURL(data.audioUrl);
@@ -171,10 +220,22 @@ export default function Dashboard() {
     uploadAudio(file);
   };
 
+  // UI helpers
   const copyToClipboard = () => {
-    navigator.clipboard.writeText(transcription);
+    navigator.clipboard.writeText(transcription || "");
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 1800);
+  };
+  const downloadTranscript = () => {
+    const blob = new Blob([transcription || ""], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `transcript-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleLogout = () => {
@@ -183,157 +244,242 @@ export default function Dashboard() {
     navigate("/dashboard");
   };
 
+  // canvas responsiveness: resize when container changed
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const resize = () => {
+      const rect = canvas.getBoundingClientRect();
+      // set style height adapted to viewport
+      if (window.innerWidth < 640) {
+        canvas.style.height = "160px";
+      } else if (window.innerWidth < 1024) {
+        canvas.style.height = "180px";
+      } else {
+        canvas.style.height = "220px";
+      }
+      // redraw (drawWave will compute pixel ratio & sizes)
+      if (analyserRef.current) drawWave();
+    };
+    resize();
+    window.addEventListener("resize", resize);
+    return () => window.removeEventListener("resize", resize);
+    // eslint-disable-next-line
+  }, []);
+
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-to-b from-gray-950 via-gray-900 to-black text-white relative overflow-hidden">
-      {/* Animated Background */}
-      <div className="absolute inset-0 animate-gradient bg-[radial-gradient(circle_at_30%_20%,rgba(0,255,255,0.15),transparent_40%),radial-gradient(circle_at_70%_80%,rgba(0,120,255,0.15),transparent_40%)]"></div>
+    <div className="min-h-screen relative text-white">
+      {/* full-screen background image (ensure file in public/images/dashboard-background.jpg) */}
+      <div
+        className="fixed inset-0 -z-30 bg-center bg-cover"
+        style={{
+          backgroundImage: "url('/images/dashboard-background.jpg')",
+          backgroundRepeat: "no-repeat",
+          backgroundSize: "cover",
+          backgroundPosition: "center center",
+          filter: "brightness(0.34) contrast(1.06) saturate(0.95)",
+          transform: "scale(1.01)",
+        }}
+      />
 
-      {/* Header */}
-      <header className="p-5 flex justify-between items-center max-w-6xl mx-auto w-full relative z-10">
-        <h1 className="text-2xl font-bold tracking-wide">
-          <span className="text-white">Speech</span>
-          <span className="text-cyan-400">ToText</span>
-        </h1>
-        <div>
-          {token ? (
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-gray-300">{userEmail}</span>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1 bg-red-500 hover:bg-red-600 px-3 py-2 rounded-lg text-sm"
-              >
-                <LogOut size={16} /> Logout
-              </button>
+      {/* animated gradient overlay for nice contrast (keeps image visible) */}
+      <div
+        className="fixed inset-0 -z-20 pointer-events-none"
+        style={{
+          background:
+            "linear-gradient(120deg, rgba(3,169,244,0.06), rgba(124,58,237,0.06), rgba(0,230,255,0.03))",
+          backgroundSize: "300% 300%",
+          animation: "moveGradient 18s ease-in-out infinite",
+          mixBlendMode: "overlay",
+        }}
+      />
+      <style>{`@keyframes moveGradient{0%{background-position:0% 50%}50%{background-position:100% 50%}100%{background-position:0% 50%}}`}</style>
+
+      {/* main content wrapper */}
+      <div className="relative z-10 max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* header */}
+        <header className="flex items-center justify-between py-6">
+          <div className="flex items-center gap-3">
+            <div className="text-2xl font-bold tracking-wide">
+              <span className="text-white">Speech</span>
+              <span className="text-cyan-400">ToText</span>
             </div>
-          ) : (
-            <div className="flex gap-2">
-              <Link
-                to="/login"
-                className="flex items-center gap-1 border border-white/30 px-3 py-2 rounded-md hover:bg-white hover:text-black transition"
-              >
-                <LogIn size={16} /> Login
-              </Link>
-              <Link
-                to="/signup"
-                className="flex items-center gap-1 bg-white text-black px-3 py-2 rounded-md hover:bg-gray-200 transition"
-              >
-                <UserPlus size={16} /> Create Account
-              </Link>
-            </div>
-          )}
-        </div>
-      </header>
-
-      {/* Hero Section */}
-      <section className="text-center py-10 px-6 max-w-4xl mx-auto z-10">
-        <h2 className="text-4xl sm:text-6xl font-extrabold mb-6 leading-tight bg-gradient-to-r from-cyan-300 via-white to-blue-400 bg-clip-text text-transparent drop-shadow-[0_0_15px_rgba(0,255,255,0.3)]">
-          No typing. No limits. Just speak.
-        </h2>
-        <p className="text-gray-300 text-lg sm:text-xl mb-8">
-          A modern{" "}
-          <span className="text-white font-semibold">Speech-to-Text Conversion App</span>{" "}
-          that turns your spoken words into text in real time.
-        </p>
-      </section>
-
-      {/* Main */}
-      <main className="flex-1 flex flex-col items-center justify-start px-4 sm:px-6 relative z-10">
-        <div className="w-full max-w-5xl bg-white/5 backdrop-blur-md rounded-3xl p-6 shadow-2xl border border-white/10">
-          <h2 className="text-xl font-semibold mb-6 text-center flex justify-center items-center gap-2">
-            <FileText className="text-cyan-400" /> Record or Upload Audio
-          </h2>
-
-          {/* Waveform */}
-          <canvas
-            ref={canvasRef}
-            width={1000}
-            height={200}
-            className="w-full h-40 rounded-md bg-black/30 mb-6 shadow-inner"
-          />
-
-          {/* Controls */}
-          <div className="flex flex-col sm:flex-row gap-3 justify-center mb-4">
-            {!recording ? (
-              <button
-                onClick={startRecording}
-                className="flex items-center justify-center gap-2 bg-cyan-500 text-black hover:bg-cyan-400 px-6 py-3 rounded-lg font-semibold transition"
-              >
-                <Mic size={20} /> Start Recording
-              </button>
-            ) : (
-              <button
-                onClick={stopRecording}
-                className="flex items-center justify-center gap-2 bg-red-500 hover:bg-red-600 px-6 py-3 rounded-lg font-semibold transition"
-              >
-                <StopCircle size={22} /> Stop Recording
-              </button>
-            )}
-            <label className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 px-6 py-3 rounded-lg font-semibold cursor-pointer transition">
-              <Upload size={20} /> Upload Audio
-              <input type="file" accept="audio/*" onChange={handleFile} className="hidden" />
-            </label>
           </div>
 
-          {loading && <p className="text-center text-white/80 mb-2">⏳ Processing...</p>}
-          {error && <p className="text-center text-red-400 mb-2">{error}</p>}
+          <div className="flex items-center gap-3">
+            {token ? (
+              <>
+                <span className="text-sm text-gray-200 hidden sm:inline">{userEmail}</span>
+                <button
+                  onClick={handleLogout}
+                  className="flex items-center gap-2 bg-red-600 hover:bg-red-700 px-3 py-2 rounded-md text-sm"
+                >
+                  <LogOut size={16} /> Logout
+                </button>
+              </>
+            ) : (
+              <>
+                <Link
+                  to="/login"
+                  className="hidden sm:inline-flex items-center gap-2 px-3 py-2 border border-white/20 rounded-md hover:bg-white/5"
+                >
+                  <LogIn size={14} /> Login
+                </Link>
+                <Link
+                  to="/signup"
+                  className="hidden sm:inline-flex items-center gap-2 px-3 py-2 bg-white text-black rounded-md hover:bg-gray-200"
+                >
+                  <UserPlus size={14} /> Sign Up
+                </Link>
 
-          {/* Transcription */}
-          {audioURL && (
-            <div className="mt-4 w-full text-center">
-              <audio ref={audioRef} src={audioURL} controls className="w-full sm:w-3/4 mx-auto mb-4" />
-              <div className="flex justify-center items-center gap-3 mb-3">
-                <h3 className="text-lg font-medium flex items-center gap-2">
-                  <FileText className="text-cyan-400" /> Transcription
+                {/* small-screen buttons */}
+                <Link
+                  to="/login"
+                  className="inline-flex sm:hidden items-center gap-2 px-3 py-2 border border-white/20 rounded-md hover:bg-white/5"
+                >
+                  Login
+                </Link>
+                <Link
+                  to="/signup"
+                  className="inline-flex sm:hidden items-center gap-2 px-3 py-2 bg-white text-black rounded-md hover:bg-gray-200"
+                >
+                  Sign Up
+                </Link>
+              </>
+            )}
+          </div>
+        </header>
+
+        {/* hero */}
+        <section className="text-center mt-6">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl font-extrabold leading-tight text-transparent bg-clip-text bg-gradient-to-r from-cyan-300 to-sky-400 drop-shadow-[0_8px_30px_rgba(0,200,255,0.08)]">
+            No typing. No limits. Just speak.
+          </h1>
+          <p className="mt-3 text-gray-300 max-w-2xl mx-auto px-2">
+            A modern <span className="text-white font-semibold">Speech-to-Text Conversion</span> app
+            that turns your spoken words into text in real time.
+          </p>
+        </section>
+
+        {/* controls card */}
+        <main className="mt-10">
+          <div className="rounded-2xl overflow-hidden bg-black/40 border border-white/6 shadow-xl p-5">
+            <div className="rounded-xl bg-black/35 border border-white/6 p-4">
+              <h3 className="text-lg font-semibold text-center mb-4 flex items-center justify-center gap-2">
+                <FileText className="text-cyan-300" /> Record or Upload Audio
+              </h3>
+
+              {/* waveform box */}
+              <div className="rounded-lg bg-black/60 p-3 mb-4 min-h-[140px]">
+                <canvas
+                  ref={canvasRef}
+                  className="w-full block rounded h-36 md:h-48"
+                  aria-label="waveform"
+                />
+              </div>
+
+              {/* controls - responsive: full width on mobile */}
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
+                {!recording ? (
+                  <button
+                    onClick={startRecording}
+                    className="w-full sm:w-auto flex items-center justify-center gap-3 bg-cyan-500 hover:bg-cyan-400 text-black px-6 py-3 rounded-full font-semibold shadow-lg transition"
+                  >
+                    <Mic size={18} /> Start Recording
+                  </button>
+                ) : (
+                  <button
+                    onClick={stopRecording}
+                    className="w-full sm:w-auto flex items-center justify-center gap-3 bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-full font-semibold shadow-lg transition"
+                  >
+                    <StopCircle size={18} /> Stop Recording
+                  </button>
+                )}
+
+                <label className="w-full sm:w-auto flex items-center justify-center gap-3 bg-white/6 hover:bg-white/10 px-5 py-3 rounded-full cursor-pointer">
+                  <Upload size={18} className="text-cyan-300" /> Upload Audio
+                  <input type="file" accept="audio/*" onChange={handleFile} className="hidden" />
+                </label>
+              </div>
+
+              {error && <p className="text-center text-red-400 mt-4">{error}</p>}
+              {loading && <p className="text-center text-white/80 mt-4">Processing...</p>}
+            </div>
+          </div>
+        </main>
+
+        {/* transcription block */}
+        <section className="mt-8">
+          <div className="rounded-2xl bg-black/35 border border-white/6 p-4 shadow-2xl">
+            <div className="flex flex-col md:flex-row items-start justify-between gap-4">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-xl font-semibold flex items-center gap-3">
+                  <FileText className="text-cyan-300" /> Transcription
                 </h3>
+                <p className="text-sm text-gray-400 mt-1">
+                  Your transcript will appear below. Edit, copy, or download as needed.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
                 <button
                   onClick={copyToClipboard}
-                  className="flex items-center gap-1 bg-cyan-500 hover:bg-cyan-600 px-3 py-1 rounded text-sm text-black font-semibold"
+                  className="flex items-center gap-2 bg-cyan-500 hover:bg-cyan-600 text-black px-3 py-2 rounded-md"
                 >
                   {copied ? <CheckCircle size={16} /> : <Copy size={16} />}{" "}
-                  {copied ? "Copied" : "Copy"}
+                  <span className="hidden sm:inline">{copied ? "Copied" : "Copy"}</span>
+                </button>
+                <button
+                  onClick={downloadTranscript}
+                  className="flex items-center gap-2 bg-white/6 hover:bg-white/10 px-3 py-2 rounded-md"
+                >
+                  <Download size={16} /> <span className="hidden sm:inline">Download</span>
                 </button>
               </div>
-              <div className="bg-black/40 rounded-lg p-3 min-h-[100px] mx-auto max-w-4xl text-gray-100 border border-white/10">
-                {transcription || "Processing your speech..."}
+            </div>
+
+            <div className="mt-4">
+              <textarea
+                value={transcription}
+                onChange={(e) => setTranscription(e.target.value)}
+                placeholder={loading ? "Processing your speech..." : "Transcript will appear here..."}
+                className="w-full min-h-[200px] md:min-h-[320px] resize-y bg-transparent outline-none text-gray-100 p-4 rounded-lg border border-white/8"
+                style={{ fontSize: 15, lineHeight: 1.6 }}
+              />
+            </div>
+
+            <div className="mt-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div className="flex items-center gap-4 w-full sm:w-auto">
+                <audio
+                  // use key to force reload when URL changes
+                  key={audioURL || "no-audio"}
+                  ref={audioRef}
+                  src={audioURL || ""}
+                  controls
+                  className="w-full sm:w-72"
+                />
+                <div className="text-sm text-gray-400 hidden sm:block">Play recorded / uploaded audio</div>
               </div>
             </div>
-          )}
+          </div>
+        </section>
 
-          {!token && (
-            <div className="mt-6 p-4 bg-red-500/60 rounded-md text-center">
-              <p className="text-white font-medium">Login first to use recording or upload feature.</p>
-            </div>
-          )}
-        </div>
-      </main>
-
-      {/* Footer */}
-      <footer className="text-center text-gray-400 text-sm py-6 border-t border-gray-800 mt-10 relative z-10">
-        <p className="max-w-3xl mx-auto text-gray-400 px-4">
-          Our Speech-to-Text App makes communication effortless — perfect for meetings, lectures, or content creation.
-        </p>
-        <div className="flex gap-4 mt-4 justify-center">
-          <a href="https://github.com/Satyam216" target="_blank" rel="noopener noreferrer">
-            <Github className="text-white hover:text-cyan-400 transition" size={22} />
-          </a>
-          <a href="https://linkedin.com/in/satyamjain216" target="_blank" rel="noopener noreferrer">
-            <Linkedin className="text-white hover:text-cyan-400 transition" size={22} />
-          </a>
-        </div>
-        <p className="mt-3">© {new Date().getFullYear()} SpeechToText — Let your voice take the lead.</p>
-      </footer>
-
-      <style>{`
-        @keyframes gradient {
-          0% { background-position: 0% 50%; }
-          50% { background-position: 100% 50%; }
-          100% { background-position: 0% 50%; }
-        }
-        .animate-gradient {
-          background-size: 200% 200%;
-          animation: gradient 10s ease infinite;
-        }
-      `}</style>
+        {/* footer */}
+        <footer className="mt-10 pb-12 text-center text-gray-300">
+          <p className="max-w-3xl mx-auto">
+            Our Speech-to-Text app turns spoken words into editable text — fast and accurate.
+          </p>
+          <div className="flex items-center justify-center gap-6 mt-4">
+            <a href="https://github.com/Satyam216" target="_blank" rel="noopener noreferrer">
+              <Github className="hover:text-cyan-400 transition" size={20} />
+            </a>
+            <a href="https://linkedin.com/in/satyamjain216" target="_blank" rel="noopener noreferrer">
+              <Linkedin className="hover:text-cyan-400 transition" size={20} />
+            </a>
+          </div>
+          <p className="mt-4 text-sm">© {new Date().getFullYear()} SpeechToText — Let your voice take the lead.</p>
+        </footer>
+      </div>
     </div>
   );
 }

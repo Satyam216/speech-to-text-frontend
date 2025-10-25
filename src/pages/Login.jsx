@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { loginUser, resetPasswordByEmail } from "../api/authApi"; // keep your API funcs
-import { LogIn } from "lucide-react";
+import { LogIn, Eye, EyeOff } from "lucide-react";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -18,6 +18,9 @@ const Login = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [loadingReset, setLoadingReset] = useState(false);
   const [resetSuccessMsg, setResetSuccessMsg] = useState("");
+
+  // password visibility toggle
+  const [showPassword, setShowPassword] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -83,10 +86,9 @@ const Login = () => {
 
   return (
     <div className="relative flex flex-col justify-center items-center min-h-screen overflow-hidden">
-      {/* VIDEO BACKGROUND: put video file at public/loginBackground.mp4 */}
       <video
         className="absolute inset-0 w-full h-full object-cover -z-10"
-        src="video/loginBackground.mp4"        /* <-- put your file at public/loginBackground.mp4 */
+        src="video/loginBackground.mp4"
         autoPlay
         muted
         loop
@@ -96,9 +98,8 @@ const Login = () => {
       {/* dark overlay so card stays readable */}
       <div className="absolute inset-0 bg-black/60 -z-5" />
 
-      {/* Quote on top */}
-      {/* Quote on top */}
-      <div className="relative z-10 text-center px-4 mt-[-60px] mb-10">
+      {/* Quote on top - nudged upward so letters render cleanly */}
+      <div className="relative z-10 text-center px-4 -mt-12 mb-8">
         <h1
           className="text-4xl sm:text-5xl font-extrabold 
           bg-gradient-to-r from-cyan-300 via-white to-blue-400 
@@ -108,10 +109,9 @@ const Login = () => {
             textShadow: "0px 0px 15px rgba(0, 255, 255, 0.4)",
           }}
         >
-          Turn your voice into text — effortlessly.
+          Turn Your Voice Into Text — EffortlesslY.
         </h1>
       </div>
-
 
       {/* Login Card */}
       <div className="relative z-10 bg-white/10 backdrop-blur-md border border-white/20 p-8 rounded-2xl shadow-2xl w-full max-w-sm text-white">
@@ -120,7 +120,7 @@ const Login = () => {
           <h2 className="text-3xl font-bold">Welcome Back</h2>
         </div>
 
-        <form onSubmit={handleLogin} className="flex flex-col space-y-4">
+        <form onSubmit={handleLogin} className="flex flex-col space-y-3">
           <input
             type="email"
             placeholder="Email Address"
@@ -129,14 +129,37 @@ const Login = () => {
             onChange={(e) => setEmail(e.target.value)}
             required
           />
-          <input
-            type="password"
-            placeholder="Password"
-            className="p-3 rounded-lg bg-white/20 placeholder-gray-300 text-white border border-white/30 focus:ring-2 focus:ring-white outline-none"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+
+          {/* password with eye toggle */}
+          <div className="relative">
+            <input
+              type={showPassword ? "text" : "password"}
+              placeholder="Password"
+              className="p-3 rounded-lg bg-white/20 placeholder-gray-300 text-white border border-white/30 focus:ring-2 focus:ring-white outline-none w-full pr-12"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((s) => !s)}
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-200 hover:text-white"
+            >
+              {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+            </button>
+          </div>
+
+          {/* Forgot Password moved here (below password) */}
+          <div className="flex justify-end -mt-1">
+            <button
+              type="button"
+              onClick={() => { setShowForgot(true); setResetStage("enterEmail"); setForgotEmail(""); setResetError(""); }}
+              className="text-sm text-cyan-300 hover:underline"
+            >
+              Forgot Password?
+            </button>
+          </div>
 
           {error && (
             <p className="text-red-400 text-sm text-center bg-black/30 py-1 rounded-md">
@@ -152,8 +175,8 @@ const Login = () => {
           </button>
         </form>
 
-        <div className="flex justify-between items-center mt-4">
-          <p className="text-center text-gray-200 text-sm">
+        <div className="mt-4 text-center">
+          <p className="text-gray-200 text-sm">
             Don’t have an account?{" "}
             <span
               onClick={() => navigate("/signup")}
@@ -162,13 +185,6 @@ const Login = () => {
               Sign Up
             </span>
           </p>
-
-          <button
-            onClick={() => { setShowForgot(true); setResetStage("enterEmail"); setForgotEmail(""); setResetError(""); }}
-            className="text-sm text-cyan-300 hover:underline"
-          >
-            Forgot Password?
-          </button>
         </div>
       </div>
 
